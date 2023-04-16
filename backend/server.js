@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken'
 import dotenv from 'dotenv'
 import crypto from 'crypto'
 import cors from 'cors'
+import mysql from 'mysql'
 
 const app = express()
 const PORT = 3000
@@ -38,8 +39,15 @@ function authenticateToken(req, res, next) {
     })
 }
 
-let users = []
-let accounts = []
+/* let users = []
+let accounts = [] */
+
+const db = mysql.createConnection({
+    host: process.env.DB_HOST,
+    user: process.env.DB_USERNAME,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB
+})
 
 app.get('/', (req, res) => {
     console.log('GET!')
@@ -49,7 +57,25 @@ app.get('/', (req, res) => {
 app.post('/users', (req, res) => {
     console.log('req: ', req.body)
 
-    users.push({
+    const { username, password, balance } = req.body
+
+    db.query("INSERT INTO users (username, password) VALUES (?, ?)", [username, password], (err, results) => {
+        console.log('result users', results)
+        if (err) {
+            res.sendStatus(500)
+        } else {
+            const userId = results.insertId
+            db.query("INSERT INTO accounts (user_id, balance) VALUES (?, ?)", [userId, balance], (err, results) => {
+                if (err) {
+                    res.sendStatus(500)
+                } else {
+                    res.send('ok')
+                }
+            })
+        }
+    })
+
+    /* users.push({
         id: users.length + 1,
         username: req.body.username,
         password: req.body.password,
@@ -62,18 +88,49 @@ app.post('/users', (req, res) => {
     })
 
     console.log(users)
-    console.log(accounts)
+    console.log(accounts) */
 
-    res.send('done')
+    //res.send('done')
 })
 
 app.post('/sessions', (req, res) => {
     console.log(req.body)
 
-    let userId = ''
+    const { username, password } = req.body
+
+    db.query("SELECT id, username, password FROM users", (err, results) => {
+        if (err) {
+            res.sendStatus(500)
+        } else {
+            let userId
+
+            console.log('sessions result', results)
+
+            results.forEach(user => {
+                if (username == user.username && password == user.password) {
+                    userId = user.id
+                    return
+                }
+            })
+
+            if (!userId) {
+                res.status(401).send('Wrong username or password')
+            } else {
+                console.log(userId)
+                const token = generateAccessToken({ userId: userId })
+
+                res.send(token)
+            }
+
+
+            /* res.send('ok') */
+        }
+    })
+
+    /* let userId = ''
 
     users.forEach(user => {
-        if (req.body.username == user.username && req.body.password == user.password) {
+        if (username == user.username && password == user.password) {
             userId = user.id
             return
         }
@@ -83,12 +140,22 @@ app.post('/sessions', (req, res) => {
 
     const token = generateAccessToken({ userId: userId })
 
-    res.send(token)
+    res.send(token) */
 })
 
 app.get('/me/accounts', authenticateToken, (req, res) => {
-    req.user.userId
-    res.send(accounts.filter(account => account.userId == req.user.userId)[0].balance)
+    const userId = req.user.userId
+    
+    db.query("SELECT balance FROM accounts WHERE user_id = ?", [userId], (err, results) => {
+        if(err) {
+            res.sendStatus(500)
+        } else {
+            console.log(results)
+            res.send(`${results[0].balance}`)
+        }
+    })
+
+    /* res.send(accounts.filter(account => account.userId == req.user.userId)[0].balance) */
 })
 
 app.listen(PORT, () => {
